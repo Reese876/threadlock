@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Threadlock — Reddit Archiver</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0d;
+      --surface: #141414;
+      --border: #2a2a2a;
+      --accent: #ff4500;
+      --accent2: #ff6534;
+      --text: #e8e8e8;
+      --muted: #666;
+      --deleted: #3a1a1a;
+      --deleted-text: #ff6b6b;
+      --mono: 'IBM Plex Mono', monospace;
+      --display: 'Syne', sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1.2rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 100;
+    }
+
+    .logo {
+      font-family: var(--display);
+      font-weight: 800;
+      font-size: 1.4rem;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .logo span { color: var(--accent); }
+
+    .archive-count {
+      font-size: 0.7rem;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 0.3rem 0.7rem;
+      border-radius: 2px;
+    }
+
+    /* ── Main layout ── */
+    main {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 61px);
+      position: sticky;
+      top: 61px;
+      overflow: hidden;
+    }
+
+    .input-panel {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .input-panel label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+
+    .url-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      padding: 0.6rem 0.8rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input[type="text"]:focus { border-color: var(--accent); }
+    input[type="text"]::placeholder { color: var(--muted); }
+
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.6rem 1rem;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      white-space: nowrap;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .btn:hover { background: var(--accent2); }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { background: #333; color: #555; cursor: not-allowed; transform: none; }
+
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
+
+    .status {
+      margin-top: 0.6rem;
+      font-size: 0.68rem;
+      color: var(--muted);
+      min-height: 1rem;
+    }
+
+    .status.ok { color: #4caf50; }
+    .status.err { color: var(--deleted-text); }
+    .status.loading { color: var(--accent); }
+
+    /* ── Archive list ── */
+    .archive-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem 0;
+    }
+
+    .archive-list::-webkit-scrollbar { width: 4px; }
+    .archive-list::-webkit-scrollbar-track { background: var(--bg); }
+    .archive-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+    .list-header {
+      padding: 0.6rem 1.5rem;
+      font-size: 0.62rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .clear-all {
+      font-size: 0.6rem;
+      color: var(--muted);
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .clear-all:hover { color: var(--deleted-text); }
+
+    .archive-item {
+      padding: 0.9rem 1.5rem;
+      border-bottom: 1px solid #1a1a1a;
+      cursor: pointer;
+      transition: background 0.1s;
+      position: relative;
+    }
+
+    .archive-item:hover { background: var(--surface); }
+    .archive-item.active { background: #1a0f0a; border-left: 2px solid var(--accent); }
+
+    .item-sub {
+      font-size: 0.62rem;
+      color: var(--accent);
+      margin-bottom: 0.3rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .item-title {
+      font-size: 0.72rem;
+      line-height: 1.4;
+      color: var(--text);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .item-meta {
+      font-size: 0.6rem;
+      color: var(--muted);
+      margin-top: 0.4rem;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .item-delete {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.8rem;
+      font-size: 0.65rem;
+      color: transparent;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: var(--mono);
+    }
+    .archive-item:hover .item-delete { color: var(--muted); }
+    .item-delete:hover { color: var(--deleted-text) !important; }
+
+    .empty-state {
+      padding: 2rem 1.5rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* ── Viewer ── */
+    .viewer {
+      overflow-y: auto;
+      padding: 2rem 3rem;
+      max-width: 900px;
+    }
+
+    .viewer::-webkit-scrollbar { width: 4px; }
+    .viewer::-webkit-scrollbar-track { background: var(--bg); }
+    .viewer::-webkit-scrollbar-thumb { background: var(--border); }
+
+    .welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      text-align: center;
+      gap: 1rem;
+      color: var(--muted);
+    }
+
+    .welcome-icon {
+      font-size: 3rem;
+      opacity: 0.3;
+    }
+
+    .welcome h2 {
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 1.4rem;
+      color: var(--text);
+      opacity: 0.4;
+    }
+
+    .welcome p { font-size: 0.72rem; max-width: 340px; line-height: 1.7; }
+
+    /* Post */
+    .post-header {
+      margin-bottom: 2rem;
+    }
+
+    .post-badges {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      margin-bottom: 0.8rem;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      font-size: 0.62rem;
+      padding: 0.2rem 0.6rem;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .badge.sub { border-color: var(--accent); color: var(--accent); }
+
+    .post-title {
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 1.6rem;
+      line-height: 1.2;
+      margin-bottom: 0.8rem;
+      letter-spacing: -0.02em;
+    }
+
+    .post-stats {
+      display: flex;
+      gap: 1.5rem;
+      font-size: 0.68rem;
+      color: var(--muted);
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .post-body {
+      padding: 1.2rem 0 1.5rem;
+      font-size: 0.82rem;
+      line-height: 1.8;
+      border-bottom: 1px solid var(--border);
+      color: #ccc;
+    }
+
+    .comments-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1.2rem 0 0.8rem;
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .comments-count {
+      font-family: var(--display);
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    /* Comments */
+    .comment {
+      padding: 0.9rem 0;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .comment-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      margin-bottom: 0.4rem;
+      font-size: 0.62rem;
+    }
+
+    .comment-author {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .comment-score {
+      color: var(--muted);
+    }
+
+    .comment-time {
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    .comment-body {
+      font-size: 0.78rem;
+      line-height: 1.7;
+      color: #ccc;
+    }
+
+    .comment-deleted {
+      background: var(--deleted);
+      border-left: 2px solid var(--deleted-text);
+      padding: 0.6rem 0.8rem;
+      font-size: 0.7rem;
+      color: var(--deleted-text);
+    }
+
+    .comment-replies {
+      margin-left: 1.5rem;
+      border-left: 1px solid var(--border);
+      padding-left: 1rem;
+    }
+
+    /* Archived badge */
+    .archived-at {
+      font-size: 0.62rem;
+      color: var(--muted);
+      padding: 0.5rem 0;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .dot { width: 5px; height: 5px; background: #4caf50; border-radius: 50%; display: inline-block; }
+
+    /* Loader */
+    .loader {
+      display: none;
+      padding: 2rem;
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--accent);
+    }
+    .loader.active { display: block; }
+
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+    .loader-text { animation: pulse 1.2s ease-in-out infinite; }
+
+    /* Progress bar */
+    .progress-bar {
+      height: 2px;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.3s;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 999;
+    }
+
+    @media (max-width: 768px) {
+      main { grid-template-columns: 1fr; }
+      .sidebar { height: auto; position: relative; top: 0; max-height: 50vh; }
+      .viewer { padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="progress-bar" id="progressBar"></div>
+
+<header>
+  <div class="logo">Thread<span>lock</span></div>
+  <div class="archive-count" id="archiveCount">0 threads saved</div>
+</header>
+
+<main>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="input-panel">
+      <label>Reddit Thread URL</label>
+      <div class="url-row">
+        <input type="text" id="urlInput" placeholder="https://reddit.com/r/..." />
+        <button class="btn" id="saveBtn" onclick="saveThread()">Save</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="list-header">
+      <span>Saved Threads</span>
+      <button class="clear-all" onclick="clearAll()">Clear all</button>
+    </div>
+
+    <div class="archive-list" id="archiveList">
+      <div class="empty-state">No threads saved yet.<br/>Paste a Reddit URL above to start archiving.</div>
+    </div>
+  </aside>
+
+  <!-- Viewer -->
+  <section class="viewer" id="viewer">
+    <div class="welcome">
+      <div class="welcome-icon">🔒</div>
+      <h2>Nothing loaded</h2>
+      <p>Paste a Reddit thread URL and hit Save. All comments are archived locally — they'll still be here even if the post gets deleted.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+  const DB_KEY = 'threadlock_archives';
+
+  // ── Storage helpers ──
+  function getArchives() {
+    try { return JSON.parse(localStorage.getItem(DB_KEY)) || []; }
+    catch { return []; }
+  }
+
+  function saveArchives(data) {
+    localStorage.setItem(DB_KEY, JSON.stringify(data));
+    updateCount();
+    renderList();
+  }
+
+  function updateCount() {
+    const n = getArchives().length;
+    document.getElementById('archiveCount').textContent = `${n} thread${n !== 1 ? 's' : ''} saved`;
+  }
+
+  // ── URL cleaner ──
+  function cleanRedditUrl(url) {
+    url = url.trim();
+    // ensure it ends with / for the JSON trick
+    if (!url.endsWith('/')) url += '/';
+    // replace old.reddit / www.reddit / share links
+    url = url.replace(/^https?:\/\/(old\.|www\.)?reddit\.com/, 'https://www.reddit.com');
+    // strip query params
+    url = url.split('?')[0];
+    return url;
+  }
+
+  function toJsonUrl(url) {
+    return cleanRedditUrl(url) + '.json?limit=500&raw_json=1';
+  }
+
+  // ── Fetch via CORS proxy ──
+  async function fetchThread(url) {
+    const jsonUrl = toJsonUrl(url);
+    // Try direct first (works in some envs), then proxy
+    const proxies = [
+      jsonUrl,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(jsonUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(jsonUrl)}`
+    ];
+
+    for (const endpoint of proxies) {
+      try {
+        const res = await fetch(endpoint, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (Array.isArray(data) && data.length >= 2) return data;
+      } catch { continue; }
+    }
+    throw new Error('Could not fetch thread. Check the URL and try again.');
+  }
+
+  // ── Parse Reddit JSON ──
+  function parsePost(listing) {
+    const post = listing[0].data.children[0].data;
+    return {
+      id: post.id,
+      title: post.title,
+      author: post.author,
+      subreddit: post.subreddit,
+      selftext: post.selftext,
+      score: post.score,
+      upvote_ratio: post.upvote_ratio,
+      num_comments: post.num_comments,
+      created_utc: post.created_utc,
+      url: post.url,
+      permalink: post.permalink,
+      is_self: post.is_self,
+    };
+  }
+
+  function parseComments(listing) {
+    const comments = listing[1].data.children;
+    return comments.map(parseComment).filter(Boolean);
+  }
+
+  function parseComment(child) {
+    if (child.kind === 'more') return { kind: 'more', count: child.data.count };
+    const c = child.data;
+    return {
+      kind: 'comment',
+      id: c.id,
+      author: c.author,
+      body: c.body,
+      score: c.score,
+      created_utc: c.created_utc,
+      is_submitter: c.is_submitter,
+      distinguished: c.distinguished,
+      replies: c.replies?.data?.children?.map(parseComment).filter(Boolean) || []
+    };
+  }
+
+  // ── Save thread ──
+  async function saveThread() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return setStatus('Paste a Reddit URL first.', 'err');
+
+    if (!url.includes('reddit.com/r/')) return setStatus('Doesn\'t look like a Reddit thread URL.', 'err');
+
+    setStatus('Fetching thread...', 'loading');
+    setProgress(20);
+    document.getElementById('saveBtn').disabled = true;
+
+    try {
+      const data = await fetchThread(url);
+      setProgress(70);
+
+      const post = parsePost(data);
+      const comments = parseComments(data);
+
+      const archives = getArchives();
+      const existing = archives.findIndex(a => a.post.id === post.id);
+
+      const entry = {
+        id: post.id,
+        saved_at: Date.now(),
+        original_url: cleanRedditUrl(url),
+        post,
+        comments
+      };
+
+      if (existing >= 0) {
+        archives[existing] = entry;
+        setStatus(`Updated — ${comments.length} comments saved.`, 'ok');
+      } else {
+        archives.unshift(entry);
+        setStatus(`Saved — ${comments.length} comments archived.`, 'ok');
+      }
+
+      saveArchives(archives);
+      setProgress(100);
+      document.getElementById('urlInput').value = '';
+      loadThread(post.id);
+
+    } catch (e) {
+      setStatus(e.message, 'err');
+      setProgress(0);
+    } finally {
+      document.getElementById('saveBtn').disabled = false;
+      setTimeout(() => setProgress(0), 600);
+    }
+  }
+
+  // ── Render sidebar list ──
+  function renderList() {
+    const archives = getArchives();
+    const list = document.getElementById('archiveList');
+
+    if (!archives.length) {
+      list.innerHTML = '<div class="empty-state">No threads saved yet.<br/>Paste a Reddit URL above to start archiving.</div>';
+      return;
+    }
+
+    list.innerHTML = archives.map(a => `
+      <div class="archive-item" id="item-${a.id}" onclick="loadThread('${a.id}')">
+        <button class="item-delete" onclick="event.stopPropagation(); deleteThread('${a.id}')">✕</button>
+        <div class="item-sub">r/${a.post.subreddit}</div>
+        <div class="item-title">${escHtml(a.post.title)}</div>
+        <div class="item-meta">
+          <span>${a.comments.length} comments</span>
+          <span>${timeAgo(a.saved_at)}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // ── Render viewer ──
+  function loadThread(id) {
+    const archives = getArchives();
+    const entry = archives.find(a => a.id === id);
+    if (!entry) return;
+
+    // Mark active
+    document.querySelectorAll('.archive-item').forEach(el => el.classList.remove('active'));
+    const el = document.getElementById('item-' + id);
+    if (el) el.classList.add('active');
+
+    const { post, comments, saved_at, original_url } = entry;
+    const viewer = document.getElementById('viewer');
+
+    viewer.innerHTML = `
+      <div class="post-header">
+        <div class="post-badges">
+          <span class="badge sub">r/${escHtml(post.subreddit)}</span>
+          <span class="badge">u/${escHtml(post.author)}</span>
+          ${post.distinguished === 'moderator' ? '<span class="badge">MOD</span>' : ''}
+        </div>
+        <div class="post-title">${escHtml(post.title)}</div>
+        <div class="post-stats">
+          <span>▲ ${post.score.toLocaleString()} points</span>
+          <span>${post.num_comments.toLocaleString()} comments</span>
+          <span>${post.upvote_ratio ? Math.round(post.upvote_ratio * 100) + '% upvoted' : ''}</span>
+          <span>${formatDate(post.created_utc)}</span>
+        </div>
+        <div class="archived-at">
+          <span class="dot"></span> Archived ${timeAgo(saved_at)} — 
+          <a href="${original_url}" target="_blank" style="color:var(--muted);font-size:0.6rem;">view on Reddit ↗</a>
+        </div>
+      </div>
+
+      ${post.is_self && post.selftext ? `<div class="post-body">${escHtml(post.selftext)}</div>` : ''}
+
+      <div class="comments-header">
+        <span class="comments-count">${comments.length}</span>
+        <span>top-level comments archived</span>
+      </div>
+
+      <div id="commentsContainer">
+        ${comments.map(renderComment).join('')}
+      </div>
+    `;
+  }
+
+  function renderComment(c, depth = 0) {
+    if (!c) return '';
+    if (c.kind === 'more') {
+      return `<div class="comment" style="font-size:0.65rem;color:var(--muted);">+ ${c.count} more comments (not loaded)</div>`;
+    }
+
+    const isDeleted = c.body === '[deleted]' || c.body === '[removed]' || c.author === '[deleted]';
+
+    const replies = (c.replies || []).map(r => renderComment(r, depth + 1)).join('');
+    const repliesHtml = replies ? `<div class="comment-replies">${replies}</div>` : '';
+
+    if (isDeleted) {
+      return `
+        <div class="comment">
+          <div class="comment-deleted">[ comment ${c.author === '[deleted]' ? 'user deleted' : 'removed'} ]</div>
+          ${repliesHtml}
+        </div>`;
+    }
+
+    return `
+      <div class="comment">
+        <div class="comment-meta">
+          <span class="comment-author ${c.is_submitter ? 'op' : ''}">${escHtml(c.author)}${c.is_submitter ? ' [OP]' : ''}</span>
+          <span class="comment-score">▲ ${c.score}</span>
+          <span class="comment-time">${formatDate(c.created_utc)}</span>
+        </div>
+        <div class="comment-body">${escHtml(c.body)}</div>
+        ${repliesHtml}
+      </div>`;
+  }
+
+  // ── Delete / clear ──
+  function deleteThread(id) {
+    if (!confirm('Remove this archived thread?')) return;
+    const archives = getArchives().filter(a => a.id !== id);
+    saveArchives(archives);
+    document.getElementById('viewer').innerHTML = `<div class="welcome"><div class="welcome-icon">🔒</div><h2>Nothing loaded</h2><p>Select a thread from the list or archive a new one.</p></div>`;
+  }
+
+  function clearAll() {
+    if (!confirm('Delete all archived threads? This cannot be undone.')) return;
+    localStorage.removeItem(DB_KEY);
+    updateCount();
+    renderList();
+    document.getElementById('viewer').innerHTML = `<div class="welcome"><div class="welcome-icon">🔒</div><h2>Nothing loaded</h2><p>Paste a Reddit URL above to start archiving.</p></div>`;
+  }
+
+  // ── Utils ──
+  function setStatus(msg, type = '') {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = 'status ' + type;
+  }
+
+  function setProgress(pct) {
+    document.getElementById('progressBar').style.width = pct + '%';
+  }
+
+  function escHtml(str) {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/\n/g, '<br>');
+  }
+
+  function formatDate(utc) {
+    if (!utc) return '';
+    return new Date(utc * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function timeAgo(ts) {
+    const diff = (Date.now() - ts) / 1000;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
+
+  // ── Enter key ──
+  document.getElementById('urlInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveThread();
+  });
+
+  // ── Init ──
+  updateCount();
+  renderList();
+</script>
+</body>
+</html>
